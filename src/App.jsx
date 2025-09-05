@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 
 // --- Card + Shoe helpers ----------------------------------------------------
-const SUITS = ["♠", "♥", "♦", "♣"]; // display suits
-const RANKS = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+const SUITS = ["♠", "♥", "♦", "♣"];
+const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
 
 function buildShoe(numDecks = 6) {
   const shoe = [];
@@ -27,25 +27,33 @@ function cardValue(rank) {
   return parseInt(rank, 10);
 }
 
+// safer total: ignores any accidental undefined
 function totalOf(hand) {
-  let total = hand.reduce((acc, c) => acc + cardValue(c.r), 0);
-  let aces = hand.filter((c) => c.r === "A").length;
+  const safe = (hand || []).filter(Boolean);
+  let total = safe.reduce((acc, c) => acc + cardValue(c.r), 0);
+  let aces = safe.filter((c) => c.r === "A").length;
   while (total > 21 && aces > 0) {
-    total -= 10; // downgrade an Ace 11 -> 1
+    total -= 10;
     aces -= 1;
   }
   return total;
 }
 
 function isBlackjack(hand) {
-  return hand.length === 2 && totalOf(hand) === 21;
+  const safe = (hand || []).filter(Boolean);
+  return safe.length === 2 && totalOf(safe) === 21;
 }
 
 // --- Pretty Card component ---------------------------------------------------
-function Card({ r, s }) {
+function Card({ r, s, delay = 0 }) {
   const isRed = s === "♥" || s === "♦";
   return (
-    <div className={`deal-in w-14 h-20 rounded-xl shadow-md bg-white border border-neutral-200 flex flex-col justify-between p-2 select-none ${isRed ? "text-red-600" : "text-neutral-900"}`}>
+    <div
+      className={`deal-in w-14 h-20 rounded-xl shadow-md bg-white border border-neutral-200 flex flex-col justify-between p-2 select-none ${
+        isRed ? "text-red-600" : "text-neutral-900"
+      }`}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div className="text-sm font-semibold">{r}</div>
       <div className="text-center text-lg">{s}</div>
       <div className="text-sm font-semibold text-right">{r}</div>
@@ -61,75 +69,85 @@ function Hand({ title, cards, hideSecond = false, totalLabel = true }) {
       <div className="text-sm uppercase tracking-wide text-neutral-400">{title}</div>
       <div className="flex gap-2 items-center">
         {shown.map((c, i) => (
-          <Card key={i + c.r + c.s} r={c.r} s={c.s} />
+          <Card key={i + c.r + c.s} r={c.r} s={c.s} delay={i * 80} />
         ))}
         {hideSecond && cards.length > 1 && (
-          <div className="deal-in w-14 h-20 rounded-xl bg-neutral-800/80 border border-neutral-700 shadow-md flex items-center justify-center text-neutral-200">?
+          <div className="deal-in w-14 h-20 rounded-xl bg-neutral-800/80 border border-neutral-700 shadow-md flex items-center justify-center text-neutral-200">
+            ?
           </div>
         )}
       </div>
-      {totalLabel && (
-        <div className="text-neutral-300 text-sm">Score: {total}</div>
-      )}
+      {totalLabel && <div className="text-neutral-300 text-sm">Score: {total}</div>}
     </div>
   );
 }
 
 // --- Main App ---------------------------------------------------------------
 export default function BlackjackApp() {
-  // table state
-  const [shoe, setShoe] = useState([]);
-  const [reshuffleAt, setReshuffleAt] = useState(52); // when to rebuild the shoe
+  // Deck (shoe) stored in a ref so draws are synchronous & reliable
+  const [reshuffleAt] = useState(52);          // rebuild threshold
+  const shoeRef = useRef([]);                  // mutable shoe
+  const [shoeCount, setShoeCount] = useState(0); // UI counter
 
+  // Bankroll persisted to localStorage
   const [balance, setBalance] = useState(() => {
-  const saved = localStorage.getItem('bj_balance');
-  return saved ? Number(saved) : 100;
-});
+    const saved = localStorage.getItem("bj_balance");
+    return saved ? Number(saved) : 100;
+  });
+  useEffect(() => {
+    localStorage.setItem("bj_balance", String(balance));
+  }, [balance]);
 
+  // Table state
   const [bet, setBet] = useState(10);
-
   const [player, setPlayer] = useState([]);
   const [dealer, setDealer] = useState([]);
-
   const [phase, setPhase] = useState("betting"); // betting | player | dealer | settle
   const [message, setMessage] = useState("");
   const [canDouble, setCanDouble] = useState(false);
-useEffect(() => {
-  localStorage.setItem('bj_balance', String(balance));
-}, [balance]);
 
-  // Build initial shoe
+  // Build initial shoe once
   useEffect(() => {
-    setShoe(buildShoe(6));
+    shoeRef.current = buildShoe(6);
+    setShoeCount(shoeRef.current.length);
   }, []);
 
-  const cardsLeft = shoe.length;
-
-  function dealOne(currentShoe = shoe) {
-    const next = [...currentShoe];
-    if (next.length === 0 || next.length <= reshuffleAt) {
-      const rebuilt = buildShoe(6);
-      setShoe(rebuilt);
-      return rebuilt.pop();
+  // Drawer helpers -----------------------------------------------------------
+  function ensureShoe(size = 6) {
+    if (!Array.isArray(shoeRef.current)) shoeRef.current = [];
+    if (shoeRef.current.length === 0 || shoeRef.current.length <= reshuffleAt) {
+      shoeRef.current = buildShoe(size);
     }
-    const card = next.pop();
-    setShoe(next);
-    return card;
   }
 
+  /** Draw exactly n cards synchronously from the shoe */
+  function draw(n = 1) {
+    const taken = [];
+    while (taken.length < n) {
+      ensureShoe();
+      const card = shoeRef.current.pop();
+      if (card) {
+        taken.push(card);
+      } else {
+        // ultra defensive: rebuild and continue
+        shoeRef.current = buildShoe(6);
+      }
+    }
+    setShoeCount(shoeRef.current.length);
+    return taken;
+  }
+
+  const cardsLeft = shoeCount;
+
+  // Actions ------------------------------------------------------------------
   function newRound() {
     if (bet < 1 || bet > balance) {
       setMessage("Pick a valid bet.");
       return;
     }
-    // take bet (temporarily reserved)
     setMessage("");
 
-    const p1 = dealOne();
-    const d1 = dealOne();
-    const p2 = dealOne();
-    const d2 = dealOne();
-
+    const [p1, d1, p2, d2] = draw(4);
     const newPlayer = [p1, p2];
     const newDealer = [d1, d2];
 
@@ -143,11 +161,9 @@ useEffect(() => {
     setCanDouble(balance >= bet);
 
     if (playerBJ || dealerBJ) {
-      // settle immediately
       setPhase("settle");
       if (playerBJ && dealerBJ) {
         setMessage("Both Blackjack! Push 🤝");
-        // no balance change
       } else if (playerBJ) {
         setMessage("Blackjack! You win 3:2 🥳");
         setBalance((b) => b + bet * 1.5);
@@ -163,10 +179,10 @@ useEffect(() => {
 
   function onHit() {
     if (phase !== "player") return;
-    const c = dealOne();
+    const [c] = draw(1);
     const next = [...player, c];
     setPlayer(next);
-    setCanDouble(false); // after first action
+    setCanDouble(false);
 
     if (totalOf(next) > 21) {
       setPhase("settle");
@@ -183,7 +199,7 @@ useEffect(() => {
     // Dealer draws to 17+
     let d = [...dealer];
     while (totalOf(d) < 17) {
-      d.push(dealOne());
+      d.push(draw(1)[0]);
     }
     setDealer(d);
 
@@ -213,9 +229,9 @@ useEffect(() => {
       setMessage("Not enough balance to double.");
       return;
     }
-    // Double bet, take one card, then stand
     setCanDouble(false);
-    const c = dealOne();
+
+    const [c] = draw(1);
     const next = [...player, c];
     setPlayer(next);
 
@@ -231,7 +247,7 @@ useEffect(() => {
 
     // Dealer plays
     let d = [...dealer];
-    while (totalOf(d) < 17) d.push(dealOne());
+    while (totalOf(d) < 17) d.push(draw(1)[0]);
     setDealer(d);
 
     const dt = totalOf(d);
@@ -243,7 +259,6 @@ useEffect(() => {
       setBalance((b) => b - doubled);
     } else {
       setMessage("Push on a double 🤝");
-      // no change
     }
     setPhase("settle");
   }
@@ -266,7 +281,7 @@ useEffect(() => {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Blackjack</h1>
-            <p className="text-sm text-emerald-200/80">6‑deck shoe • Dealer hits to 17 • Blackjack pays 3:2</p>
+            <p className="text-sm text-emerald-200/80">6-deck shoe • Dealer hits to 17 • Blackjack pays 3:2</p>
           </div>
           <div className="text-right">
             <div className="text-sm text-emerald-200/80">Balance</div>
