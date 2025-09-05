@@ -45,7 +45,7 @@ function isBlackjack(hand) {
 function Card({ r, s }) {
   const isRed = s === "♥" || s === "♦";
   return (
-    <div className={`w-14 h-20 rounded-xl shadow-md bg-white border border-neutral-200 flex flex-col justify-between p-2 select-none ${isRed ? "text-red-600" : "text-neutral-900"}`}>
+    <div className={`deal-in w-14 h-20 rounded-xl shadow-md bg-white border border-neutral-200 flex flex-col justify-between p-2 select-none ${isRed ? "text-red-600" : "text-neutral-900"}`}>
       <div className="text-sm font-semibold">{r}</div>
       <div className="text-center text-lg">{s}</div>
       <div className="text-sm font-semibold text-right">{r}</div>
@@ -64,7 +64,7 @@ function Hand({ title, cards, hideSecond = false, totalLabel = true }) {
           <Card key={i + c.r + c.s} r={c.r} s={c.s} />
         ))}
         {hideSecond && cards.length > 1 && (
-          <div className="w-14 h-20 rounded-xl bg-neutral-800/80 border border-neutral-700 shadow-md flex items-center justify-center text-neutral-200">?
+          <div className="deal-in w-14 h-20 rounded-xl bg-neutral-800/80 border border-neutral-700 shadow-md flex items-center justify-center text-neutral-200">?
           </div>
         )}
       </div>
@@ -81,7 +81,11 @@ export default function BlackjackApp() {
   const [shoe, setShoe] = useState([]);
   const [reshuffleAt, setReshuffleAt] = useState(52); // when to rebuild the shoe
 
-  const [balance, setBalance] = useState(100);
+  const [balance, setBalance] = useState(() => {
+  const saved = localStorage.getItem('bj_balance');
+  return saved ? Number(saved) : 100;
+});
+
   const [bet, setBet] = useState(10);
 
   const [player, setPlayer] = useState([]);
@@ -90,6 +94,9 @@ export default function BlackjackApp() {
   const [phase, setPhase] = useState("betting"); // betting | player | dealer | settle
   const [message, setMessage] = useState("");
   const [canDouble, setCanDouble] = useState(false);
+useEffect(() => {
+  localStorage.setItem('bj_balance', String(balance));
+}, [balance]);
 
   // Build initial shoe
   useEffect(() => {
